@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Currency Converter & Banking Tools</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f4f9; margin: 20px; }
+    h2 { color: #333; }
+    .container { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; }
+    .box { background: #fff; padding: 20px; border-radius: 12px;
+           box-shadow: 0px 4px 10px rgba(0,0,0,0.1); flex: 1 1 400px; }
+    input, select, button { padding: 10px; margin: 5px 0; }
+    button { background: #0077ff; color: #fff; border: none;
+             border-radius: 6px; cursor: pointer; }
+    button:hover { background: #005fcc; }
+    #swap { background: #ff9800; } #swap:hover { background: #e67e00; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; background: #fff; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background: #eee; }
+    .stats { margin-top: 20px; padding: 10px; background: #fff; border: 1px solid #ccc; }
+    .final-row { font-weight: bold; background: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <h1>Currency Tools</h1>
+
+  <div class="container">
+    <!-- Converter -->
+    <div class="box">
+      <h2>Currency Converter</h2>
+      <input type="number" id="amount" placeholder="Enter amount" step="0.000001" />
+      <br />
+      <select id="from"></select>
+      <button id="swap">⇄</button>
+      <select id="to"></select>
+      <br />
+      <button onclick="convertCurrencyUI()">Convert</button>
+      <div class="results" id="results"></div>
+    </div>
+
+    <!-- 14-Day Rates -->
+    <div class="box">
+      <h2>14-Day Exchange Rate Viewer</h2>
+      <label for="base">Base Currency:</label>
+      <select id="base"></select>
+      <label for="target">Target Currency:</label>
+      <select id="target"></select>
+      <button onclick="fetchRatesUI()">Get 14-Day Rates</button>
+      <div class="stats">
+        <p><b>Max:</b> <span id="maxVal">-</span></p>
+        <p><b>Min:</b> <span id="minVal">-</span></p>
+        <p><b>Average:</b> <span id="avgVal">-</span></p>
+      </div>
+      <canvas id="rateChart" width="400" height="200"></canvas>
+      <table id="ratesTable">
+        <thead><tr><th>Date</th><th>Rate</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Wallet -->
+    <div class="box">
+      <h2>Multi-Currency Wallet</h2>
+      <table id="walletTable">
+        <thead><tr><th>Currency</th><th>Balance</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <h3>Wallet Transactions</h3>
+      <label>Choose Action:</label>
+      <select id="actionType">
+        <option value="deposit">Deposit</option>
+        <option value="withdraw">Withdraw</option>
+        <option value="transfer">Transfer</option>
+      </select>
+      <div id="actionInputs"></div>
+      <button onclick="handleActionUI()">Submit</button>
+      <div id="actionResult"></div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="box">
+      <h2>Preferred Rate Alerts</h2>
+      <label>Base Currency:</label>
+      <select id="alertFrom"></select>
+      <label>Target Currency:</label>
+      <select id="alertTo"></select>
+      <input type="number" id="targetRate" placeholder="Target Rate" />
+      <br />
+      <button onclick="setAlertUI()">Set Alert</button>
+      <div id="alertStatus"></div>
+    </div>
+  </div>
+
+  <!-- Import our API and wire up the UI -->
+  <script type="module">
+    import { createCurrencyTools } from './currencyTools.js';
+
+    const API_KEY = "52d43b624f-66c34ecc1e-t1x17h";
+    const tools = createCurrencyTools({ apiKey: API_KEY });
+
+    let chart;
+
+    // --- Load currencies into dropdowns ---
+    async function init() {
+      try {
+        const { rates, currencies } = await tools.loadCurrenciesPromise();
+
+        const selects = ["from","to","base","target","alertFrom","alertTo"];
+        selects.forEach(id => {
+          const el = document.getElementById(id);
+          el.innerHTML = "";
+          for (const code in currencies) {
+            el.innerHTML += `<option value="${code}">${code}</option>`;
+          }
+        });
+        document.getElementById("from").value = "USD";
+        document.getElementById("to").value = "INR";
+        document.getElementById("base").value = "USD";
+        document.getElementById("target").value = "INR";
+        document.getElementById("alertFrom").value = "USD";
+        document.getElementById("alertTo").value = "INR";
+
+        updateWalletUI();
+        showInputs();
+      } catch (e) {
+        console.error("Init failed:", e);
+      }
+    }
+
+    // --- Converter UI ---
+    window.convertCurrencyUI = function() {
+      const amount = parseFloat(document.getElementById("amount").value);
+      const from = document.getElementById("from").value;
+      const to = document.getElementById("to").value;
+
+      tools.convertCurrency(amount, from, to, (err, res) => {
+        if (err) return alert(err.message);
+        document.getElementById("results").innerHTML = `
+          <p><b>Amount:</b> ${res.amount} ${res.from}</p>
+          <p><b>Rate:</b> 1 ${res.from} = ${res.rate.toFixed(4)} ${res.to}</p>
+          <p><b>Converted:</b> ${res.converted.toFixed(2)} ${res.to}</p>
+        `;
+      });
+    };
+
+    // Swap
+    document.getElementById("swap").addEventListener("click", () => {
+      let from = document.getElementById("from");
+      let to = document.getElementById("to");
+      [from.value, to.value] = [to.value, from.value];
+    });
+
+    // --- 14-day rates UI ---
+    window.fetchRatesUI = async function() {
+      const base = document.getElementById("base").value;
+      const target = document.getElementById("target").value;
+      try {
+        const arr = await tools.get14DayRatesPromise(base, target);
+
+        // update stats
+        const vals = arr.map(r => r.rate);
+        document.getElementById("maxVal").textContent = Math.max(...vals).toFixed(4);
+        document.getElementById("minVal").textContent = Math.min(...vals).toFixed(4);
+        document.getElementById("avgVal").textContent = (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(4);
+
+        // table
+        const tbody = document.querySelector("#ratesTable tbody");
+        tbody.innerHTML = "";
+        arr.forEach(r => tbody.innerHTML += `<tr><td>${r.date}</td><td>${r.rate}</td></tr>`);
+
+        // chart
+        if (chart) chart.destroy();
+        const ctx = document.getElementById("rateChart").getContext("2d");
+        chart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: arr.map(r=>r.date),
+            datasets: [{ label: `${base} → ${target}`, data: vals, borderColor: "blue", fill: true, tension: 0.3 }]
+          }
+        });
+      } catch (e) {
+        alert("Failed: " + e.message);
+      }
+    };
+
+    // --- Wallet UI ---
+   function updateWalletUI() {
+  tools.getWallet((_, w) => {
+    const tbody = document.querySelector("#walletTable tbody");
+    tbody.innerHTML = "";
+    for (const [cur, bal] of Object.entries(w)) {
+      tbody.innerHTML += `<tr><td>${cur}</td><td>${bal.toFixed(2)}</td></tr>`;
+    }
+  });
+}
+
+
+    document.getElementById("actionType").addEventListener("change", showInputs);
+    function showInputs() {
+      const action = document.getElementById("actionType").value;
+      const div = document.getElementById("actionInputs");
+      div.innerHTML = "";
+
+      if (action === "deposit" || action === "withdraw") {
+        div.innerHTML = `
+          <label>Currency:</label>
+          <select id="walletCurrency">
+            ${Object.keys(tools._getState().currencies).map(c=>`<option value="${c}">${c}</option>`).join("")}
+          </select><br/>
+          <label>Amount:</label>
+          <input type="number" id="walletAmount" placeholder="Enter amount" />
+        `;
+      } else if (action === "transfer") {
+        div.innerHTML = `
+          <label>Amount to transfer:</label>
+          <input type="number" id="transferAmount" placeholder="Enter amount" /><br/>
+          <select id="transferFrom">${Object.keys(tools._getState().wallet).map(c=>`<option value="${c}">${c}</option>`).join("")}</select>
+          →
+          <select id="transferTo">${Object.keys(tools._getState().currencies).map(c=>`<option value="${c}">${c}</option>`).join("")}</select>
+        `;
+      }
+    }
+
+    window.handleActionUI = function() {
+      const action = document.getElementById("actionType").value;
+      let resultDiv = document.getElementById("actionResult");
+      resultDiv.innerHTML = "";
+
+      if (action === "deposit") {
+        const cur = document.getElementById("walletCurrency").value;
+        const amt = parseFloat(document.getElementById("walletAmount").value);
+        tools.deposit(cur, amt, (err, w) => {
+          if (err) return alert(err.message);
+          updateWalletUI();
+          resultDiv.innerHTML = `<p>Deposited ${amt} ${cur} successfully.</p>`;
+        });
+      } else if (action === "withdraw") {
+        const cur = document.getElementById("walletCurrency").value;
+        const amt = parseFloat(document.getElementById("walletAmount").value);
+        tools.withdraw(cur, amt, (err, w) => {
+          if (err) return alert(err.message);
+          updateWalletUI();
+          resultDiv.innerHTML = `<p>Withdrew ${amt} ${cur} successfully.</p>`;
+        });
+      } else if (action === "transfer") {
+        const amt = parseFloat(document.getElementById("transferAmount").value);
+        const from = document.getElementById("transferFrom").value;
+        const to = document.getElementById("transferTo").value;
+        tools.transfer(from, to, amt, (err, info) => {
+          if (err) return alert(err.message);
+          updateWalletUI();
+          resultDiv.innerHTML = `
+            <p><b>Gross:</b> ${info.gross.toFixed(2)} ${to}</p>
+            <p><b>Fees:</b> ${info.fees.toFixed(2)} ${to}</p>
+            <p><b>Net Received:</b> ${info.net.toFixed(2)} ${to}</p>
+          `;
+        });
+      }
+    };
+
+    // --- Alerts UI ---
+    window.setAlertUI = function() {
+      const from = document.getElementById("alertFrom").value;
+      const to = document.getElementById("alertTo").value;
+      const targetRate = parseFloat(document.getElementById("targetRate").value);
+
+      if (!targetRate) return alert("Enter target rate");
+      document.getElementById("alertStatus").innerText = `Alert set: 1 ${from} ≥ ${targetRate} ${to}`;
+
+      tools.setRateAlert(from, to, targetRate, (err, info) => {
+        if (err) return console.error("Alert error:", err);
+        alert(`Good news! 1 ${from} = ${info.rate.toFixed(2)} ${to}`);
+        document.getElementById("alertStatus").innerText = "";
+      });
+    };
+
+    // Init
+    init();
+  </script>
+</body>
+</html>

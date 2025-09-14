@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>CurrencyTools Tests</title></head>
+<body>
+  <h1>CurrencyTools Test Runner</h1>
+  <pre id="log" style="white-space:pre-wrap;border:1px solid #ccc;padding:10px;height:70vh;overflow:auto;"></pre>
+
+  <script type="module">
+    import { createCurrencyTools } from './currencyTools.js';
+
+    const logEl = document.getElementById('log');
+    function log(...args) { console.log(...args); logEl.textContent += args.map(a => (typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a))).join(' ') + '\n'; }
+
+    // configure with mockRates for offline testing
+    const tools = createCurrencyTools({ useMock: true, mockRates: { USD: 1, INR: 82, EUR: 0.92, GBP: 0.78 }, pollInterval: 2000 });
+
+    async function runTests() {
+      log('=== Test 1: loadCurrencies (callback, mock) ===');
+      tools.loadCurrencies((err, data) => {
+        if (err) return log('loadCurrencies callback error:', err);
+        log('loadCurrencies OK, sample rates:', Object.keys(data.rates).slice(0,6));
+      });
+
+      // small wait
+      await new Promise(r => setTimeout(r, 200));
+
+      log('=== Test 2: convertCurrency (callback) ===');
+      tools.convertCurrency(100, 'USD', 'INR', (err, res) => {
+        if (err) return log('convertCurrency callback error:', err);
+        log('convertCurrency callback result:', res);
+      });
+
+      log('=== Test 3: convertCurrency (promise) ===');
+      try {
+        const res = await tools.convertCurrencyPromise(50, 'EUR', 'USD');
+        log('convertCurrencyPromise result:', res);
+      } catch (e) { log('convertCurrencyPromise error', e); }
+
+      log('=== Test 4: deposit/withdraw/transfer (callback & promise) ===');
+      tools.getWallet((_, w) => log('initial wallet:', w));
+      tools.deposit('USD', 200, (err, w) => log('after deposit (callback):', err ? err : w));
+      try {
+        const w2 = await tools.withdrawPromise('INR', 5000);
+        log('after withdrawPromise:', w2);
+      } catch (e) { log('withdrawPromise error:', e.message); }
+
+      try {
+        const transferRes = await tools.transferPromise('USD', 'INR', 50);
+        log('transferPromise result:', transferRes);
+      } catch (e) { log('transferPromise error:', e.message); }
+
+      log('=== Test 5: get14DayRates (mock) ===');
+      tools.get14DayRates('USD', 'INR', (err, arr) => {
+        if (err) return log('get14DayRates error:', err.message);
+        log('14-day sample (first 3):', arr.slice(0,3));
+      });
+
+      log('=== Test 6: setRateAlert (callback) - immediate trigger ===');
+      // set a target that equals current rate to trigger immediately in mock mode
+      const curRate = (tools._getState().rates.INR / tools._getState().rates.USD);
+      const alertHandle = tools.setRateAlert('USD', 'INR', curRate, (err, info) => {
+        if (err) return log('alert error', err);
+        log('Alert triggered:', info);
+      }, { interval: 1000 });
+
+      // stop alert after 5 seconds (safety)
+      setTimeout(() => { alertHandle.stop(); log('Alert stopped (safety)'); }, 5000);
+
+      log('=== All tests started. Check console and this page for details ===');
+    }
+
+    runTests().catch(e => log('Test runner crashed:', e));
+  </script>
+</body>
+</html>
